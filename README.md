@@ -1,10 +1,8 @@
 # LaMetricNextTram
 
-App that shows when will the next train/tram come.
+App that shows the departure time of trains.
 
-- The "/next-26-to-central-v1" function returns when the tram 26 that is heading to Amsterdadm Central Station will stop at the Zuiderzeeweg tram stop.
-- The "/next-26-to-central" function returns when the next NS train will leave Zaandam Central Station to Amsterdam Central Station. 
->(I keept the old url name so I didn't need to publish the LametricTime app again. The app polls that hardcoded url). 
+- The "/nextTrain" function returns when the next 3 NS trains will leave Zaandam Central Station to Amsterdam Central Station. 
 
 ![ezgif com-gif-maker](https://user-images.githubusercontent.com/6198387/112994809-eb967880-916a-11eb-9cc8-5fa65d74d3eb.gif)
 

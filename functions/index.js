@@ -1,68 +1,7 @@
 process.env.TZ = "Europe/Amsterdam";
 
-const functions = require("firebase-functions");
-const express = require("express");
-const cors = require("cors");
-const app = express();
-const fs = require("fs");
+const {onRequest} = require("firebase-functions/v2/https");
 const request = require('request');
-
-// https://maps.gvb.nl/api/v1/timetable_validities?linenumber=26&include=timetables
-
-app.use(cors({origin: true}));
-
-const rawdata = fs.readFileSync("26-away-timetable.json");
-const timeTableJson = JSON.parse(rawdata).trips
-    .map((trip) => getDateFromTime(trip.times[6]));
-
-/**
-     *
-     * @param {*} time
-     * @returns
-     */
-function getDateFromTime(time) {
-  const splitTime = time.split(":");
-  if (splitTime[0] == "24" || splitTime[0] == "00") {
-    return new Date("2021-03-04T00:"+splitTime[1]+":"+splitTime[2]);
-  } else {
-    return new Date("2021-03-03T"+time);
-  }
-};
-
-// app.get("/timeTableJson", (req, res) => {
-//   return res.status(200).send(timeTableJson);
-// });
-
-// app.get("/next-26-to-central-v1", (req, res) => {
-//   const currentDate = getDateFromTime((new Date()).toLocaleTimeString("NL", {hour12: false}));
-//   const indexTimeScheduled = timeTableJson.findIndex((date) => date.getTime() > currentDate.getTime());
-
-//   const responseObj={};
-//   responseObj.frames=[];
-  
-//   if (indexTimeScheduled == -1) {
-//     // only tomorrow
-//     const frame0 = {
-//       "text": "Only tomorrow!",
-//       "icon": "5101",
-//     };
-//     responseObj.frames.push(frame0);
-//     return res.status(200).send(responseObj);
-//   } else {
-//     const millisecondsForTheTrain = timeTableJson[indexTimeScheduled].getTime() - currentDate.getTime();
-//     const frame0 = {
-//       "text": "In " + (millisecondsForTheTrain / 1000 / 60).toFixed(1) + " min",
-//       "icon": "5101",
-//     };
-//     responseObj.frames.push(frame0);
-//     const frame1 = {
-//       "text": "At " + timeTableJson[indexTimeScheduled].toLocaleTimeString("NL", {hour12: false, hour: '2-digit', minute: '2-digit'}),
-//       "icon": "5101",
-//     };
-//     responseObj.frames.push(frame1);
-//     return res.status(200).send(responseObj);
-//   }
-// });
 
 function isTrainGoingToAmsCentraal(departure) {
   if (departure.cancelled) return false;
@@ -72,27 +11,47 @@ function isTrainGoingToAmsCentraal(departure) {
   }).includes("8400058"); //uicCode Amsterdam Centraal
 };
 
-function getFrameDepartureTime(departure) {
+function getIconId(index) {
+  switch (index) {
+    case 0:
+      return "38257"
+    case 1:
+      return "9004"
+    case 2:
+      return "9007"
+    default:
+      return "5101"
+  }
+} 
+
+function getFrameDepartureTime(departure, index) {
   const date = new Date(departure.actualDateTime);
   return {
     "text": "At " + date.toLocaleTimeString("NL", {hour12: false, hour: '2-digit', minute: '2-digit'}),
-    "icon": "5101",
+    "icon": getIconId(index),
   };
 };
 
-function getFrameSpoor(departure) {
-  return {
-    "text": "Spoor " + departure.plannedTrack,
-    "icon": "5101",
-  };
-};
+function minutesDiff(dateTimeValue2, dateTimeValue1) {
+  var differenceValue =(dateTimeValue2.getTime() - dateTimeValue1.getTime()) / 1000;
+  differenceValue /= 60;
+  return Math.abs(Math.round(differenceValue));
+}
 
-app.get("/next-26-to-central", (req, res) => {  
+function isTrainDepartingInMoreThan5Minutes(dateTimeValue, departure) {
+  return minutesDiff(new Date(departure.actualDateTime), dateTimeValue) >= 5;
+}
+
+function byActualDateTime(departure1, departure2) {
+  return new Date(departure1.actualDateTime) - new Date(departure2.actualDateTime);
+}
+
+const nextTrainFromZaandamToAmsterdamCentraal = onRequest((req, res) => {
   
   const options = {
     url: 'https://gateway.apiportal.ns.nl/reisinformatie-api/api/v2/departures?uicCode=8400731', //this code is station zaandam
     headers: {
-      'Ocp-Apim-Subscription-Key': '<token here>'
+      'Ocp-Apim-Subscription-Key': '<api_key_here>'
     },
     json: true
   };
@@ -106,7 +65,8 @@ app.get("/next-26-to-central", (req, res) => {
       const responseObj={};
       responseObj.frames=[];
 
-      const trainsToAmsCentraal = body.payload.departures.filter(isTrainGoingToAmsCentraal);
+      const currentDateTime = new Date();
+      const trainsToAmsCentraal = body.payload.departures.filter(isTrainGoingToAmsCentraal).filter(departure => isTrainDepartingInMoreThan5Minutes(currentDateTime, departure)).slice(0, 3).sort(byActualDateTime);
 
       if(trainsToAmsCentraal.length === 0) {
         const frame0 = {
@@ -116,16 +76,13 @@ app.get("/next-26-to-central", (req, res) => {
         responseObj.frames.push(frame0);
         return res.status(200).send(responseObj);
       } else {
-        responseObj.frames.push(getFrameDepartureTime(trainsToAmsCentraal[0]))
-        responseObj.frames.push(getFrameSpoor(trainsToAmsCentraal[0]))
-        if (trainsToAmsCentraal.length > 1) {
-          responseObj.frames.push(getFrameDepartureTime(trainsToAmsCentraal[1]))
-          responseObj.frames.push(getFrameSpoor(trainsToAmsCentraal[1]))
-        }
+        trainsToAmsCentraal.forEach((element, index) => {
+          responseObj.frames.push(getFrameDepartureTime(element, index))
+        });
         return res.status(200).send(responseObj);
       }
     }
   });
 });
 
-exports.app = functions.https.onRequest(app);
+exports.nextTrain = nextTrainFromZaandamToAmsterdamCentraal;
